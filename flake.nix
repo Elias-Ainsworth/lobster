@@ -1,29 +1,66 @@
 {
-  description = "CLI to watch Movies/TV Shows from the terminal";
+  description = "Watch anime with automatic anilist syncing and other cool stuff";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    systems.url = "github:nix-systems/default-linux";
+    systems.url = "github:nix-systems/default";
+    flake-parts = {
+      url = "github:hercules-ci/flake-parts";
+      inputs.nixpkgs-lib.follows = "nixpkgs";
+    };
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    systems,
-  }: let
-    inherit (nixpkgs) lib;
-    eachSystem = lib.genAttrs (import systems);
-    pkgsFor = eachSystem (system:
-      import nixpkgs {
-        config = {};
-        localSystem = system;
-        overlays = [];
-      });
-  in {
-    packages = eachSystem (system: {
-      lobster = pkgsFor.${system}.callPackage ./default.nix {};
-      default = self.packages.${system}.lobster;
-    });
-  };
+  outputs =
+    inputs@{
+      flake-parts,
+      systems,
+      self,
+      ...
+    }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = import systems;
+
+      perSystem =
+        { pkgs, ... }:
+        let
+          inherit (pkgs) callPackage;
+
+          default = callPackage ./nix/package.nix { };
+          full =
+            callPackage ./nix/package.nix
+              {
+              };
+        in
+        {
+          formatter = pkgs.alejandra;
+
+          devShells.default = pkgs.mkShell {
+            inputsFrom = [ full ];
+            packages = with pkgs; [
+              # Nix
+              alejandra
+              statix
+              deadnix
+
+              # Shell
+              bash-language-server
+              shellcheck
+              shfmt
+            ];
+          };
+
+          packages = {
+            lobster = default;
+            inherit default;
+            inherit full;
+          };
+        };
+
+      flake = {
+        homeManagerModules = rec {
+          default = import ./nix/hm-module.nix self;
+          lobster = default;
+        };
+      };
+    };
 }
-
